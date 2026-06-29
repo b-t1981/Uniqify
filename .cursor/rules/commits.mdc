@@ -1,0 +1,25 @@
+---
+description: Convention de messages de commit Uniqify
+alwaysApply: true
+---
+
+# Convention de commits Uniqify
+
+Tous les commits doivent suivre ce format :
+
+```
+v0.N - description en français
+```
+
+## Règles
+
+- Commencer à `v0.1` pour le premier commit du projet
+- Incrémenter `N` de 1 à chaque nouveau commit (`v0.2`, `v0.3`, … `v0.9`, `v0.10`, …)
+- La description est en français, concise et au présent ou à l'infinitif
+- Déterminer `N` en lisant le dernier commit : `git log -1 --format=%s`
+
+## Exemples
+
+- `v0.1 - Initialisation du dépôt Uniqify`
+- `v0.2 - Ajout de la structure du projet`
+- `v0.10 - Correction du scan des doublons`
