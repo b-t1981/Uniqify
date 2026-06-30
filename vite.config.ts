@@ -5,12 +5,13 @@ import { VitePWA } from 'vite-plugin-pwa'
 import { fileURLToPath, URL } from 'node:url'
 
 export default defineConfig({
+  base: './',
   plugins: [
     react(),
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg'],
+      includeAssets: ['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'Uniqify',
         short_name: 'Uniqify',
@@ -19,6 +20,7 @@ export default defineConfig({
         background_color: '#f2f2f7',
         display: 'standalone',
         orientation: 'portrait',
+        lang: 'fr',
         start_url: '/',
         icons: [
           {

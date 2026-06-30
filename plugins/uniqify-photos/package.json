@@ -1,0 +1,31 @@
+{
+  "name": "capacitor-uniqify-photos",
+  "version": "0.1.0",
+  "description": "Suppression de photos dans la galerie iOS (PhotoKit)",
+  "main": "dist/esm/index.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "files": [
+    "dist/",
+    "ios/Sources",
+    "Package.swift",
+    "CapacitorUniqifyPhotos.podspec"
+  ],
+  "author": "Uniqify",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^7.4.2",
+    "typescript": "~5.8.3"
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=7.0.0"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  }
+}

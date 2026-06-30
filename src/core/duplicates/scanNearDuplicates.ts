@@ -1,8 +1,12 @@
 import type { PhotoFile, PhotoGroup } from '@/core/types/photo'
+import { photoCacheKey } from '@/core/types/photo'
 import { hammingDistance, similarityPercent } from '@/core/hash/hamming'
 import type { PHashWorkerResponse } from '@/core/duplicates/phash.worker'
+import { idle, loadThumbnailForScan, SCAN_BATCH_SIZE } from '@/core/photos/loadBytesForScan'
+import { getCachedHashPHash, setCachedHashPHash } from '@/core/storage/scanCache'
 
 export const PHASH_MAX_DISTANCE = 10
+const PHASH_BUCKET_PREFIX = 8
 
 export interface NearScanProgress {
   phase: 'hashing' | 'comparing' | 'grouping'
@@ -22,12 +26,12 @@ function getPHashWorker(): Worker {
   return phashWorker
 }
 
-function pHashPhotoInWorker(photo: PhotoFile): Promise<string> {
+function pHashFileInWorker(photoId: string, file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const worker = getPHashWorker()
 
     function onMessage(event: MessageEvent<PHashWorkerResponse>) {
-      if (event.data.id !== photo.id) return
+      if (event.data.id !== photoId) return
       worker.removeEventListener('message', onMessage)
       worker.removeEventListener('error', onError)
       resolve(event.data.hash)
@@ -41,12 +45,33 @@ function pHashPhotoInWorker(photo: PhotoFile): Promise<string> {
 
     worker.addEventListener('message', onMessage)
     worker.addEventListener('error', onError)
-    worker.postMessage({ id: photo.id, file: photo.file })
+    worker.postMessage({ id: photoId, file })
   })
 }
 
+async function resolvePHash(photo: PhotoFile): Promise<string | null> {
+  if (photo.hashPHash) return photo.hashPHash
+
+  const cacheKey = photoCacheKey(photo)
+  const cached = await getCachedHashPHash(cacheKey)
+  if (cached) {
+    photo.hashPHash = cached
+    return cached
+  }
+
+  try {
+    const file = await loadThumbnailForScan(photo, 512)
+    const hash = await pHashFileInWorker(photo.id, file)
+    photo.hashPHash = hash
+    await setCachedHashPHash(cacheKey, hash)
+    return hash
+  } catch {
+    return null
+  }
+}
+
 function sizesAreComparable(a: PhotoFile, b: PhotoFile): boolean {
-  const ratio = a.size / b.size
+  const ratio = a.size / Math.max(b.size, 1)
   return ratio >= 0.4 && ratio <= 2.5
 }
 
@@ -88,15 +113,22 @@ function computeGroupSimilarity(hashes: string[]): number {
   return similarityPercent(bestDistance)
 }
 
+function bucketKey(hash: string): string {
+  return hash.slice(0, PHASH_BUCKET_PREFIX)
+}
+
 export async function scanNearDuplicates(
   photos: PhotoFile[],
   onProgress?: (progress: NearScanProgress) => void,
+  signal?: AbortSignal,
 ): Promise<PhotoGroup[]> {
   if (photos.length < 2) return []
 
-  const hashes: string[] = []
+  const hashes: Array<string | null> = []
 
   for (let i = 0; i < photos.length; i++) {
+    if (signal?.aborted) throw new DOMException('Analyse annulée', 'AbortError')
+
     const photo = photos[i]!
     onProgress?.({
       phase: 'hashing',
@@ -105,59 +137,83 @@ export async function scanNearDuplicates(
       currentName: photo.name,
     })
 
-    hashes.push(await pHashPhotoInWorker(photo))
+    hashes.push(await resolvePHash(photo))
 
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve())
-    })
+    if ((i + 1) % SCAN_BATCH_SIZE === 0) {
+      await idle(8)
+    } else {
+      await idle()
+    }
+  }
+
+  const indexed = photos
+    .map((photo, index) => ({ photo, index, hash: hashes[index] }))
+    .filter((item): item is { photo: PhotoFile; index: number; hash: string } =>
+      Boolean(item.hash),
+    )
+
+  const buckets = new Map<string, number[]>()
+  for (const item of indexed) {
+    const key = bucketKey(item.hash)
+    const list = buckets.get(key) ?? []
+    list.push(item.index)
+    buckets.set(key, list)
   }
 
   const unionFind = new UnionFind(photos.length)
-  const totalPairs = (photos.length * (photos.length - 1)) / 2
+  const bucketKeys = [...buckets.keys()]
   let comparedPairs = 0
+  const compareTotal = bucketKeys.reduce((sum, key) => {
+    const size = buckets.get(key)?.length ?? 0
+    return sum + (size * (size - 1)) / 2
+  }, 0)
 
-  for (let i = 0; i < photos.length; i++) {
-    for (let j = i + 1; j < photos.length; j++) {
-      comparedPairs++
-      onProgress?.({
-        phase: 'comparing',
-        processed: comparedPairs,
-        total: totalPairs,
-        currentName: '',
-      })
+  for (const key of bucketKeys) {
+    const indices = buckets.get(key) ?? []
 
-      const photoA = photos[i]!
-      const photoB = photos[j]!
-      if (!sizesAreComparable(photoA, photoB)) continue
+    for (let a = 0; a < indices.length; a++) {
+      for (let b = a + 1; b < indices.length; b++) {
+        if (signal?.aborted) throw new DOMException('Analyse annulée', 'AbortError')
 
-      const hashA = hashes[i]!
-      const hashB = hashes[j]!
-      if (hammingDistance(hashA, hashB) <= PHASH_MAX_DISTANCE) {
-        unionFind.union(i, j)
+        comparedPairs++
+        onProgress?.({
+          phase: 'comparing',
+          processed: comparedPairs,
+          total: Math.max(compareTotal, 1),
+          currentName: '',
+        })
+
+        const indexA = indices[a]!
+        const indexB = indices[b]!
+        const photoA = photos[indexA]!
+        const photoB = photos[indexB]!
+        if (!sizesAreComparable(photoA, photoB)) continue
+
+        const hashA = hashes[indexA]!
+        const hashB = hashes[indexB]!
+        if (hammingDistance(hashA, hashB) <= PHASH_MAX_DISTANCE) {
+          unionFind.union(indexA, indexB)
+        }
       }
     }
 
-    if (i % 8 === 0) {
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => resolve())
-      })
-    }
+    if (comparedPairs % 200 === 0) await idle(4)
   }
 
   onProgress?.({
     phase: 'grouping',
-    processed: totalPairs,
-    total: totalPairs,
+    processed: Math.max(compareTotal, 1),
+    total: Math.max(compareTotal, 1),
     currentName: '',
   })
 
   const clusters = new Map<number, { photos: PhotoFile[]; hashes: string[] }>()
 
-  for (let i = 0; i < photos.length; i++) {
-    const root = unionFind.find(i)
+  for (const { photo, index, hash } of indexed) {
+    const root = unionFind.find(index)
     const bucket = clusters.get(root) ?? { photos: [], hashes: [] }
-    bucket.photos.push(photos[i]!)
-    bucket.hashes.push(hashes[i]!)
+    bucket.photos.push(photo)
+    bucket.hashes.push(hash)
     clusters.set(root, bucket)
   }
 

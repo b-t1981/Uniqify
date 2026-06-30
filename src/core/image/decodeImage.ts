@@ -14,7 +14,7 @@ export async function getImageDimensions(
 }
 
 export async function decodeImageFile(
-  file: File,
+  file: Blob,
   maxSize = 512,
 ): Promise<DecodedImage> {
   const bitmap = await createImageBitmap(file)

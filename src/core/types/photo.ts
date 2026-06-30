@@ -4,12 +4,19 @@ export type PhotoSource = 'file' | 'native'
 
 export interface PhotoFile {
   id: string
-  file: File
+  file?: File
   name: string
   size: number
   lastModified: number
   source: PhotoSource
+  mimeType?: string
+  width?: number
+  height?: number
   thumbnailUrl?: string
+  diskHandle?: FileSystemFileHandle
+  nativeAssetId?: string
+  hashExact?: string
+  hashPHash?: string
 }
 
 export interface PhotoGroup {
@@ -33,4 +40,12 @@ export interface ScanResult {
   exactDuplicates: PhotoGroup[]
   nearDuplicates: PhotoGroup[]
   lowQuality: PhotoGroup[]
+}
+
+export function photoCacheKey(photo: PhotoFile): string {
+  return photo.nativeAssetId ?? photo.id
+}
+
+export function hasScanBytes(photo: PhotoFile): boolean {
+  return Boolean(photo.file || photo.nativeAssetId || photo.diskHandle)
 }

@@ -1,5 +1,8 @@
 import type { PhotoFile, PhotoGroup } from '@/core/types/photo'
+import { photoCacheKey } from '@/core/types/photo'
 import type { HashWorkerResponse } from '@/core/duplicates/hash.worker'
+import { idle, loadFullFileForScan, SCAN_BATCH_SIZE } from '@/core/photos/loadBytesForScan'
+import { getCachedHashExact, setCachedHashExact } from '@/core/storage/scanCache'
 
 export interface ExactScanProgress {
   phase: 'hashing' | 'grouping'
@@ -19,12 +22,12 @@ function getHashWorker(): Worker {
   return hashWorker
 }
 
-function hashPhotoInWorker(photo: PhotoFile): Promise<string> {
+function hashFileInWorker(photoId: string, file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const worker = getHashWorker()
 
     function onMessage(event: MessageEvent<HashWorkerResponse>) {
-      if (event.data.id !== photo.id) return
+      if (event.data.id !== photoId) return
       worker.removeEventListener('message', onMessage)
       worker.removeEventListener('error', onError)
       resolve(event.data.hash)
@@ -38,8 +41,25 @@ function hashPhotoInWorker(photo: PhotoFile): Promise<string> {
 
     worker.addEventListener('message', onMessage)
     worker.addEventListener('error', onError)
-    worker.postMessage({ id: photo.id, file: photo.file })
+    worker.postMessage({ id: photoId, file })
   })
+}
+
+async function resolveExactHash(photo: PhotoFile): Promise<string> {
+  if (photo.hashExact) return photo.hashExact
+
+  const cacheKey = photoCacheKey(photo)
+  const cached = await getCachedHashExact(cacheKey)
+  if (cached) {
+    photo.hashExact = cached
+    return cached
+  }
+
+  const file = await loadFullFileForScan(photo)
+  const hash = await hashFileInWorker(photo.id, file)
+  photo.hashExact = hash
+  await setCachedHashExact(cacheKey, hash)
+  return hash
 }
 
 function groupCandidatesBySize(photos: PhotoFile[]): PhotoFile[] {
@@ -62,6 +82,7 @@ function groupCandidatesBySize(photos: PhotoFile[]): PhotoFile[] {
 export async function scanExactDuplicates(
   photos: PhotoFile[],
   onProgress?: (progress: ExactScanProgress) => void,
+  signal?: AbortSignal,
 ): Promise<PhotoGroup[]> {
   const candidates = groupCandidatesBySize(photos)
 
@@ -78,7 +99,9 @@ export async function scanExactDuplicates(
   const hashByPhotoId = new Map<string, string>()
 
   for (let i = 0; i < candidates.length; i++) {
-    const photo = candidates[i]
+    if (signal?.aborted) throw new DOMException('Analyse annulée', 'AbortError')
+
+    const photo = candidates[i]!
     onProgress?.({
       phase: 'hashing',
       processed: i + 1,
@@ -86,12 +109,18 @@ export async function scanExactDuplicates(
       currentName: photo.name,
     })
 
-    const hash = await hashPhotoInWorker(photo)
-    hashByPhotoId.set(photo.id, hash)
+    try {
+      const hash = await resolveExactHash(photo)
+      hashByPhotoId.set(photo.id, hash)
+    } catch {
+      // Photo iCloud hors ligne ou fichier inaccessible — ignorée pour ce scan
+    }
 
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => resolve())
-    })
+    if ((i + 1) % SCAN_BATCH_SIZE === 0) {
+      await idle(8)
+    } else {
+      await idle()
+    }
   }
 
   onProgress?.({

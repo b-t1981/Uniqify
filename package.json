@@ -6,22 +6,36 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "postinstall": "npm run build --prefix plugins/uniqify-photos",
+    "preview": "vite preview",
+    "build:ios": "npm run build && npx cap sync ios && node scripts/patch-ios-plist.mjs",
+    "icons": "node scripts/generate-icons.mjs",
+    "ios": "npx cap open ios",
+    "sync:ios": "npx cap sync ios"
   },
   "dependencies": {
+    "@capacitor-community/keep-awake": "^7.0.0",
+    "@capacitor/core": "^7.4.2",
+    "@capacitor/filesystem": "^7.1.4",
+    "@capacitor/ios": "^7.4.2",
+    "@capacitor/local-notifications": "^7.0.3",
+    "@capgo/capacitor-photo-library": "^7.2.11",
+    "capacitor-uniqify-photos": "file:plugins/uniqify-photos",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.6.2"
   },
   "devDependencies": {
+    "@capacitor/cli": "^7.4.2",
     "@tailwindcss/vite": "^4.1.10",
+    "@types/node": "^22.15.29",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.5.2",
+    "sharp": "^0.35.2",
     "tailwindcss": "^4.1.10",
     "typescript": "~5.8.3",
     "vite": "^6.3.5",
-    "vite-plugin-pwa": "^1.0.0",
-    "@types/node": "^22.15.29"
+    "vite-plugin-pwa": "^1.0.0"
   }
 }

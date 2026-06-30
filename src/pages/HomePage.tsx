@@ -25,7 +25,7 @@ export function HomePage() {
             <p className="mt-5 text-[15px] leading-relaxed text-label-secondary">
               {hasPhotos
                 ? `${photos.length} photo${photos.length > 1 ? 's' : ''} prête${photos.length > 1 ? 's' : ''} à analyser.`
-                : 'Importez vos photos pour commencer le nettoyage de votre galerie.'}
+                : 'Ouvrez votre galerie photo, détectez les doublons et supprimez-les en toute sécurité.'}
             </p>
             <div className="mt-6 space-y-3">
               <Link to="/import" className="block">

@@ -1,63 +1,172 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { IconPhotos } from '@/components/ui/Icons'
 import { PhotoGrid } from '@/components/photos/PhotoGrid'
+import { ScanProgress } from '@/components/ui/ScanProgress'
 import { useAppState } from '@/hooks/useAppState'
 import { getPhotoAdapter } from '@/platforms'
+import type { GalleryImportProgress } from '@/platforms/types'
 
 export function ImportPage() {
   const { photos, addPhotos, clearAll } = useAppState()
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [importProgress, setImportProgress] = useState<GalleryImportProgress | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
   const adapter = getPhotoAdapter()
 
-  async function handlePickPhotos() {
+  async function runImport(
+    action: () => Promise<Awaited<ReturnType<typeof adapter.pickPhotos>>>,
+  ) {
+    setError(null)
     setLoading(true)
+    setImportProgress(null)
     try {
-      const picked = await adapter.pickPhotos({ multiple: true })
+      const picked = await action()
       if (picked.length > 0) addPhotos(picked)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      setError(err instanceof Error ? err.message : 'Import impossible')
     } finally {
       setLoading(false)
+      setImportProgress(null)
+      abortRef.current = null
     }
   }
 
-  async function handlePickFolder() {
-    if (!adapter.pickFolder) return
+  async function handleImportFullGallery() {
+    if (!adapter.importFullGallery) return
+
+    setError(null)
     setLoading(true)
+    const controller = new AbortController()
+    abortRef.current = controller
+
     try {
-      const picked = await adapter.pickFolder()
-      if (picked.length > 0) addPhotos(picked)
+      const catalog = await adapter.importFullGallery(setImportProgress, controller.signal)
+      if (catalog.length > 0) addPhotos(catalog)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return
+      setError(err instanceof Error ? err.message : 'Indexation galerie impossible')
     } finally {
       setLoading(false)
+      setImportProgress(null)
+      abortRef.current = null
     }
   }
+
+  function handleCancelImport() {
+    abortRef.current?.abort()
+  }
+
+  const galleryLabel = adapter.canDeleteFromGallery
+    ? 'Choisir dans la galerie'
+    : 'Ouvrir la galerie / photothèque'
 
   return (
     <div>
       <PageHeader
         title="Photos"
-        description="Choisissez les images à analyser."
+        description="Indexez votre galerie iPhone sans charger toutes les images en mémoire."
         large={false}
       />
 
       <div className="space-y-4">
         <Card padding="none">
-          <div className="space-y-2 p-4">
-            <Button fullWidth size="lg" onClick={handlePickPhotos} disabled={loading}>
-              {loading ? 'Chargement…' : 'Choisir des photos'}
-            </Button>
+          <div className="space-y-3 p-4">
+            <p
+              className={[
+                'rounded-2xl px-3 py-2 text-[13px] leading-snug',
+                adapter.canDeleteFromGallery || adapter.canDeleteFromDisk
+                  ? 'bg-accent-soft text-accent'
+                  : 'bg-fill-secondary text-label-tertiary',
+              ].join(' ')}
+            >
+              {adapter.importHint}
+            </p>
+
+            {adapter.canImportFullGallery && adapter.importFullGallery ? (
+              <Button
+                fullWidth
+                size="lg"
+                onClick={handleImportFullGallery}
+                disabled={loading}
+              >
+                {loading && importProgress
+                  ? `Indexation… ${importProgress.processed}/${importProgress.total || '…'}`
+                  : 'Indexer toute ma galerie'}
+              </Button>
+            ) : null}
+
+            {adapter.canPickGallery && adapter.pickGallery ? (
+              <Button
+                fullWidth
+                size="lg"
+                variant={adapter.canImportFullGallery ? 'secondary' : 'primary'}
+                onClick={() => runImport(() => adapter.pickGallery!())}
+                disabled={loading}
+              >
+                {loading && !importProgress ? 'Chargement…' : galleryLabel}
+              </Button>
+            ) : (
+              <Button
+                fullWidth
+                size="lg"
+                onClick={() => runImport(() => adapter.pickPhotos({ multiple: true }))}
+                disabled={loading}
+              >
+                {loading ? 'Chargement…' : 'Choisir des photos'}
+              </Button>
+            )}
+
+            {adapter.pickWritableFiles ? (
+              <Button
+                fullWidth
+                variant="secondary"
+                onClick={() => runImport(() => adapter.pickWritableFiles!())}
+                disabled={loading}
+              >
+                Choisir des fichiers (suppression possible)
+              </Button>
+            ) : null}
+
             {adapter.canPickFolder && adapter.pickFolder ? (
               <Button
                 fullWidth
                 variant="secondary"
-                onClick={handlePickFolder}
+                onClick={() => runImport(() => adapter.pickFolder!())}
                 disabled={loading}
               >
-                Choisir un dossier
+                Choisir un dossier (suppression possible)
               </Button>
             ) : null}
+
+            {loading && adapter.canImportFullGallery ? (
+              <Button fullWidth variant="secondary" onClick={handleCancelImport}>
+                Annuler l’indexation
+              </Button>
+            ) : null}
+
+            {importProgress && importProgress.total > 0 ? (
+              <ScanProgress
+                processed={importProgress.processed}
+                total={importProgress.total}
+                label={importProgress.message}
+              />
+            ) : null}
+
+            {error ? (
+              <p className="rounded-2xl bg-danger-soft px-3 py-2 text-[13px] leading-snug text-danger">
+                {error}
+              </p>
+            ) : null}
+
+            <p className="px-1 text-[12px] leading-snug text-label-tertiary">
+              {adapter.deleteHint}
+            </p>
           </div>
         </Card>
 
@@ -65,7 +174,8 @@ export function ImportPage() {
           <>
             <div className="flex items-center justify-between gap-3 px-1">
               <p className="text-[15px] font-medium text-label-secondary">
-                {photos.length} photo{photos.length > 1 ? 's' : ''}
+                {photos.length.toLocaleString('fr-FR')} photo{photos.length > 1 ? 's' : ''}{' '}
+                indexée{photos.length > 1 ? 's' : ''}
               </p>
               <div className="flex gap-2">
                 <button
@@ -83,22 +193,24 @@ export function ImportPage() {
             <PhotoGrid photos={photos} />
           </>
         ) : (
-          <EmptyState />
+          <EmptyState canOpenGallery={adapter.canPickGallery} />
         )}
       </div>
     </div>
   )
 }
 
-function EmptyState() {
+function EmptyState({ canOpenGallery }: { canOpenGallery: boolean }) {
   return (
     <div className="flex flex-col items-center rounded-[28px] bg-surface px-6 py-14 text-center shadow-card">
       <div className="flex h-20 w-20 items-center justify-center rounded-[24px] bg-fill-secondary">
         <IconPhotos className="h-10 w-10 text-label-tertiary" />
       </div>
-      <p className="mt-5 text-[20px] font-semibold text-label">Votre galerie est vide</p>
+      <p className="mt-5 text-[20px] font-semibold text-label">Aucune photo indexée</p>
       <p className="mt-2 max-w-xs text-[15px] leading-relaxed text-label-tertiary">
-        Sélectionnez vos photos pour détecter les doublons et les clichés inutiles.
+        {canOpenGallery
+          ? 'Indexez toute votre galerie ou sélectionnez un lot de photos à analyser.'
+          : 'Sélectionnez vos photos pour détecter les doublons et les clichés inutiles.'}
       </p>
     </div>
   )

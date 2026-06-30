@@ -1,7 +1,8 @@
 import type { PhotoFile } from '@/core/types/photo'
 import type { PhotoQualityResult, QualityIssue } from '@/core/types/quality'
 import { QUALITY_THRESHOLDS } from '@/core/types/quality'
-import { decodeImageFile, getImageDimensions } from '@/core/image/decodeImage'
+import { decodeImageFile } from '@/core/image/decodeImage'
+import { loadThumbnailForScan } from '@/core/photos/loadBytesForScan'
 
 function luminance(r: number, g: number, b: number): number {
   return 0.299 * r + 0.587 * g + 0.114 * b
@@ -43,15 +44,15 @@ function laplacianVariance(gray: Float32Array, width: number, height: number): n
 
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
-      const i = y * width + x
-      const lap =
-        -4 * gray[i] +
-        gray[i - 1] +
-        gray[i + 1] +
-        gray[i - width] +
-        gray[i + width]
-      sum += lap
-      sumSq += lap * lap
+      const center = gray[y * width + x]!
+      const laplacian =
+        -4 * center +
+        gray[(y - 1) * width + x]! +
+        gray[(y + 1) * width + x]! +
+        gray[y * width + (x - 1)]! +
+        gray[y * width + (x + 1)]!
+      sum += laplacian
+      sumSq += laplacian * laplacian
       count++
     }
   }
@@ -67,22 +68,21 @@ function sampleBand(
   height: number,
   side: 'top' | 'bottom' | 'left' | 'right',
 ): Float32Array {
-  const bandW = Math.max(1, Math.round(width * QUALITY_THRESHOLDS.borderRatio))
-  const bandH = Math.max(1, Math.round(height * QUALITY_THRESHOLDS.borderRatio))
+  const bandSize = Math.max(1, Math.round(Math.min(width, height) * 0.08))
   const samples: number[] = []
 
   if (side === 'top' || side === 'bottom') {
-    const yStart = side === 'top' ? 0 : height - bandH
-    for (let y = yStart; y < yStart + bandH; y++) {
+    const yStart = side === 'top' ? 0 : height - bandSize
+    for (let y = yStart; y < yStart + bandSize; y++) {
       for (let x = 0; x < width; x++) {
-        samples.push(gray[y * width + x])
+        samples.push(gray[y * width + x]!)
       }
     }
   } else {
-    const xStart = side === 'left' ? 0 : width - bandW
-    for (let y = 0; y < height; y++) {
-      for (let x = xStart; x < xStart + bandW; x++) {
-        samples.push(gray[y * width + x])
+    const xStart = side === 'left' ? 0 : width - bandSize
+    for (let x = xStart; x < xStart + bandSize; x++) {
+      for (let y = 0; y < height; y++) {
+        samples.push(gray[y * width + x]!)
       }
     }
   }
@@ -122,7 +122,7 @@ function hasObscuredCorner(
     const samples: number[] = []
     for (let row = y; row < y + cornerH; row++) {
       for (let col = x; col < x + cornerW; col++) {
-        samples.push(gray[row * width + col])
+        samples.push(gray[row * width + col]!)
       }
     }
     const band = Float32Array.from(samples)
@@ -134,15 +134,16 @@ function hasObscuredCorner(
 }
 
 export async function analyzePhotoQuality(photo: PhotoFile): Promise<PhotoQualityResult> {
-  const { width: originalWidth, height: originalHeight } = await getImageDimensions(
-    photo.file,
-  )
-  const { data, width, height } = await decodeImageFile(photo.file, 512)
+  const scanFile = await loadThumbnailForScan(photo, 512)
+  const { data, width, height } = await decodeImageFile(scanFile, 512)
   const gray = toGrayscale(data, width, height)
 
   const sharpness = laplacianVariance(gray, width, height)
   const brightness = mean(gray)
   const uniformity = stdDev(gray)
+
+  const originalWidth = photo.width ?? width
+  const originalHeight = photo.height ?? height
 
   const issues: QualityIssue[] = []
 
