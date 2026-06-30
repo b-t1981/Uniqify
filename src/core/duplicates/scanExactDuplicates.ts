@@ -1,8 +1,15 @@
 import type { PhotoFile, PhotoGroup } from '@/core/types/photo'
 import { photoCacheKey } from '@/core/types/photo'
+import {
+  hashExactFileOnDevice,
+  useMainThreadForImageHash,
+} from '@/core/hash/runOnDevice'
 import type { HashWorkerResponse } from '@/core/duplicates/hash.worker'
 import { idle, loadFullFileForScan, SCAN_BATCH_SIZE } from '@/core/photos/loadBytesForScan'
 import { getCachedHashExact, setCachedHashExact } from '@/core/storage/scanCache'
+import { withTimeout } from '@/core/utils/async'
+
+const HASH_WORKER_TIMEOUT_MS = 22_000
 
 export interface ExactScanProgress {
   phase: 'hashing' | 'grouping'
@@ -13,6 +20,11 @@ export interface ExactScanProgress {
 
 let hashWorker: Worker | null = null
 
+function resetHashWorker(): void {
+  hashWorker?.terminate()
+  hashWorker = null
+}
+
 function getHashWorker(): Worker {
   if (!hashWorker) {
     hashWorker = new Worker(new URL('./hash.worker.ts', import.meta.url), {
@@ -22,8 +34,8 @@ function getHashWorker(): Worker {
   return hashWorker
 }
 
-function hashFileInWorker(photoId: string, file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
+function hashFileInWorker(photoId: string, file: File, photoName: string): Promise<string> {
+  const work = new Promise<string>((resolve, reject) => {
     const worker = getHashWorker()
 
     function onMessage(event: MessageEvent<HashWorkerResponse>) {
@@ -43,6 +55,21 @@ function hashFileInWorker(photoId: string, file: File): Promise<string> {
     worker.addEventListener('error', onError)
     worker.postMessage({ id: photoId, file })
   })
+
+  return withTimeout(work, HASH_WORKER_TIMEOUT_MS, `Hash exact trop long : ${photoName}`)
+}
+
+async function computeExactHash(file: File, photo: PhotoFile): Promise<string> {
+  if (useMainThreadForImageHash()) {
+    return hashExactFileOnDevice(file, photo.name)
+  }
+
+  try {
+    return await hashFileInWorker(photo.id, file, photo.name)
+  } catch {
+    resetHashWorker()
+    return hashExactFileOnDevice(file, photo.name)
+  }
 }
 
 async function resolveExactHash(photo: PhotoFile): Promise<string> {
@@ -56,9 +83,9 @@ async function resolveExactHash(photo: PhotoFile): Promise<string> {
   }
 
   const file = await loadFullFileForScan(photo)
-  const hash = await hashFileInWorker(photo.id, file)
+  const hash = await computeExactHash(file, photo)
   photo.hashExact = hash
-  await setCachedHashExact(cacheKey, hash)
+  void setCachedHashExact(cacheKey, hash)
   return hash
 }
 

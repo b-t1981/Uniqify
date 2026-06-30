@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  startTransition,
   type Dispatch,
   type ReactNode,
   type SetStateAction,
@@ -26,6 +27,8 @@ interface AppState {
   hydrated: boolean
   setPhotos: (photos: PhotoFile[]) => void
   addPhotos: (photos: PhotoFile[]) => void
+  /** Une seule mise à jour React + sauvegarde différée (gros imports). */
+  commitCatalogImport: (photos: PhotoFile[]) => Promise<void>
   setScanResult: Dispatch<SetStateAction<ScanResult | null>>
   markPhotosAnalyzed: (photoIds: string[]) => void
   removePhotos: (photoIds: string[]) => Promise<DiskDeleteResult>
@@ -48,13 +51,18 @@ const emptyDeleteResult = (): DiskDeleteResult => ({
 })
 
 const SAVE_DEBOUNCE_MS = 600
+const BULK_SAVE_DEBOUNCE_MS = 2500
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [photos, setPhotos] = useState<PhotoFile[]>([])
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [analyzedPhotoIds, setAnalyzedPhotoIds] = useState<string[]>([])
   const [hydrated, setHydrated] = useState(false)
+  const [persistPaused, setPersistPaused] = useState(false)
   const saveTimerRef = useRef<number | null>(null)
+  const analyzedPhotoIdsRef = useRef(analyzedPhotoIds)
+
+  analyzedPhotoIdsRef.current = analyzedPhotoIds
 
   useEffect(() => {
     let cancelled = false
@@ -71,22 +79,24 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
-    if (!hydrated) return
+    if (!hydrated || persistPaused) return
 
     if (saveTimerRef.current !== null) {
       window.clearTimeout(saveTimerRef.current)
     }
 
+    const delay = photos.length > 200 ? BULK_SAVE_DEBOUNCE_MS : SAVE_DEBOUNCE_MS
+
     saveTimerRef.current = window.setTimeout(() => {
       void saveAppSession(photos, scanResult, analyzedPhotoIds)
-    }, SAVE_DEBOUNCE_MS)
+    }, delay)
 
     return () => {
       if (saveTimerRef.current !== null) {
         window.clearTimeout(saveTimerRef.current)
       }
     }
-  }, [photos, scanResult, analyzedPhotoIds, hydrated])
+  }, [photos, scanResult, analyzedPhotoIds, hydrated, persistPaused])
 
   const markPhotosAnalyzed = useCallback((photoIds: string[]) => {
     if (photoIds.length === 0) return
@@ -98,8 +108,33 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const addPhotos = useCallback((incoming: PhotoFile[]) => {
+    if (incoming.length === 0) return
     setPhotos((current) => mergePhotosDeduped(current, incoming))
     setScanResult(null)
+  }, [])
+
+  const commitCatalogImport = useCallback(async (incoming: PhotoFile[]) => {
+    if (incoming.length === 0) return
+
+    setPersistPaused(true)
+    await deferToIdle()
+
+    let merged: PhotoFile[] = []
+
+    await new Promise<void>((resolve) => {
+      startTransition(() => {
+        setPhotos((current) => {
+          merged = mergePhotosDeduped(current, incoming)
+          return merged
+        })
+        resolve()
+      })
+    })
+
+    await deferToIdle()
+    setPersistPaused(false)
+
+    void saveAppSession(merged, null, analyzedPhotoIdsRef.current)
   }, [])
 
   const removePhotos = useCallback(async (photoIds: string[]) => {
@@ -142,6 +177,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     hydrated,
     setPhotos,
     addPhotos,
+    commitCatalogImport,
     setScanResult,
     markPhotosAnalyzed,
     removePhotos,

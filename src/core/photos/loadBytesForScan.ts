@@ -4,8 +4,24 @@ import { PhotoLibrary } from '@capgo/capacitor-photo-library'
 import type { PhotoFile } from '@/core/types/photo'
 import { withTimeout } from '@/core/utils/async'
 
-const NATIVE_LOAD_TIMEOUT_MS = 45_000
+const NATIVE_LOAD_TIMEOUT_MS = 20_000
 const WEB_IMAGE_TIMEOUT_MS = 30_000
+const NATIVE_THUMBNAIL_CONCURRENCY = 4
+let nativeThumbnailInFlight = 0
+const nativeThumbnailWaiters: Array<() => void> = []
+
+async function withNativeThumbnailSlot<T>(work: () => Promise<T>): Promise<T> {
+  while (nativeThumbnailInFlight >= NATIVE_THUMBNAIL_CONCURRENCY) {
+    await new Promise<void>((resolve) => nativeThumbnailWaiters.push(resolve))
+  }
+  nativeThumbnailInFlight++
+  try {
+    return await work()
+  } finally {
+    nativeThumbnailInFlight--
+    nativeThumbnailWaiters.shift()?.()
+  }
+}
 
 async function blobFromNativePath(path: string, mimeType: string): Promise<Blob> {
   const content = await withTimeout(
@@ -125,12 +141,18 @@ export async function resolvePhotoThumbnailUrl(
   }
 
   if (photo.nativeAssetId) {
-    const thumb = await PhotoLibrary.getThumbnailUrl({
-      id: photo.nativeAssetId,
-      width: size,
-      height: size,
-      quality: 0.75,
-    })
+    const thumb = await withNativeThumbnailSlot(() =>
+      withTimeout(
+        PhotoLibrary.getThumbnailUrl({
+          id: photo.nativeAssetId!,
+          width: size,
+          height: size,
+          quality: 0.75,
+        }),
+        NATIVE_LOAD_TIMEOUT_MS,
+        `Miniature inaccessible : ${photo.name}`,
+      ),
+    )
     return Capacitor.convertFileSrc(thumb.webPath)
   }
 

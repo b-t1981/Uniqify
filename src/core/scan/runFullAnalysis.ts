@@ -59,13 +59,21 @@ export async function runFullAnalysis(
     subPhase?: FullScanProgress['subPhase'],
   ) => {
     const idx = phaseIndex(phase, withNear)
+    const phaseProcessed =
+      phase === 'exact' && total < scopeTotal && subPhase !== 'grouping'
+        ? Math.min(
+            scopeTotal,
+            Math.round((processed / Math.max(total, 1)) * scopeTotal),
+          )
+        : Math.min(processed, scopeTotal)
+
     onProgress({
       phase,
       phaseLabel: PHASE_LABELS[phase],
-      processed,
-      total,
+      processed: phaseProcessed,
+      total: scopeTotal,
       currentName,
-      overallProcessed: idx * scopeTotal + processed,
+      overallProcessed: idx * scopeTotal + phaseProcessed,
       overallTotal,
       subPhase,
     })
@@ -74,7 +82,13 @@ export async function runFullAnalysis(
   exactDuplicates = await scanExactDuplicates(
     photos,
     (p) =>
-      report('exact', p.processed, p.total, p.currentName || 'Regroupement…'),
+      report(
+        'exact',
+        p.processed,
+        p.total,
+        p.currentName || 'Regroupement…',
+        p.phase === 'grouping' ? 'grouping' : 'hashing',
+      ),
     signal,
   )
 

@@ -3,6 +3,7 @@ import { PageHeader } from '@/components/ui/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { IconPhotos, IconShield } from '@/components/ui/Icons'
+import { IosPwaInstallCard } from '@/components/layout/IosPwaInstallCard'
 import { useAppState } from '@/hooks/useAppState'
 
 export function HomePage() {
@@ -43,6 +44,8 @@ export function HomePage() {
             </div>
           </div>
         </Card>
+
+        <IosPwaInstallCard />
 
         <Card padding="sm">
           <div className="flex items-start gap-3">

@@ -1,10 +1,25 @@
 import { PhotoLibrary } from '@capgo/capacitor-photo-library'
 import type { PhotoFile } from '@/core/types/photo'
-import type { GalleryImportProgress, PhotoLibraryAdapter } from '@/platforms/types'
+import type {
+  GalleryImportProgress,
+  PhotoLibraryAdapter,
+} from '@/platforms/types'
 import { assetToPhotoRef } from '@/platforms/native/assetToPhotoRef'
-import { ensureGalleryDeleteAccess } from '@/platforms/native/uniqifyPhotosPlugin'
+import { deferToIdle } from '@/core/utils/async'
 
-const CATALOG_PAGE_SIZE = 200
+/** Moins d’allers-retours natifs ; les métadonnées restent légères. */
+const CATALOG_PAGE_SIZE = 400
+
+/** Index galerie : métadonnées seulement, pas d’attente iCloud ni grosses vignettes. */
+const CATALOG_LIBRARY_OPTIONS = {
+  includeImages: true,
+  includeVideos: false,
+  includeCloudData: false,
+  includeFullResolutionData: false,
+  thumbnailWidth: 1,
+  thumbnailHeight: 1,
+  thumbnailQuality: 0.4,
+} as const
 
 async function ensurePhotoAccess(): Promise<void> {
   const { state } = await PhotoLibrary.checkAuthorization()
@@ -23,13 +38,7 @@ async function importCatalogPage(
   const page = await PhotoLibrary.getLibrary({
     offset,
     limit: CATALOG_PAGE_SIZE,
-    includeImages: true,
-    includeVideos: false,
-    includeCloudData: true,
-    includeFullResolutionData: false,
-    thumbnailWidth: 256,
-    thumbnailHeight: 256,
-    thumbnailQuality: 0.72,
+    ...CATALOG_LIBRARY_OPTIONS,
   })
 
   const photos: PhotoFile[] = []
@@ -40,9 +49,9 @@ async function importCatalogPage(
 
   onProgress?.({
     phase: 'catalog',
-    processed: Math.min(offset + page.assets.length, page.totalCount),
+    processed: Math.min(offset + photos.length, page.totalCount),
     total: page.totalCount,
-    message: 'Indexation de la galerie…',
+    message: `Indexation… ${Math.min(offset + photos.length, page.totalCount)}/${page.totalCount || '…'}`,
   })
 
   return {
@@ -62,7 +71,7 @@ export const nativePhotoAdapter: PhotoLibraryAdapter = {
   canDeleteFromDisk: false,
 
   importHint:
-    'Importez toute votre galerie (léger, sans charger les originaux) ou sélectionnez des photos précises.',
+    'Pour toute la galerie, préférez « Indexer toute ma galerie » (rapide, sans copier les originaux). La sélection manuelle copie chaque photo et peut être lente.',
   deleteHint:
     'Les photos supprimées sont retirées définitivement de votre galerie (confirmation iOS).',
 
@@ -72,15 +81,14 @@ export const nativePhotoAdapter: PhotoLibraryAdapter = {
 
   async pickPhotos(options = { multiple: true }) {
     await ensurePhotoAccess()
-    await ensureGalleryDeleteAccess()
 
     const result = await PhotoLibrary.pickMedia({
       selectionLimit: options.multiple === false ? 1 : 0,
       includeImages: true,
       includeVideos: false,
-      thumbnailWidth: 256,
-      thumbnailHeight: 256,
-      thumbnailQuality: 0.72,
+      thumbnailWidth: 96,
+      thumbnailHeight: 96,
+      thumbnailQuality: 0.65,
     })
 
     return result.assets
@@ -88,9 +96,9 @@ export const nativePhotoAdapter: PhotoLibraryAdapter = {
       .map((asset) => assetToPhotoRef(asset))
   },
 
-  async importFullGallery(onProgress, signal) {
+  async importFullGallery(options = {}) {
+    const { onProgress, signal, onBatch } = options
     await ensurePhotoAccess()
-    await ensureGalleryDeleteAccess()
 
     const catalog: PhotoFile[] = []
     let offset = 0
@@ -101,7 +109,7 @@ export const nativePhotoAdapter: PhotoLibraryAdapter = {
       phase: 'catalog',
       processed: 0,
       total: 0,
-      message: 'Préparation de l’index galerie…',
+      message: 'Lecture de la photothèque…',
     })
 
     while (hasMore) {
@@ -110,12 +118,15 @@ export const nativePhotoAdapter: PhotoLibraryAdapter = {
       }
 
       const page = await importCatalogPage(offset, onProgress)
-      catalog.push(...page.photos)
+      if (page.photos.length > 0) {
+        catalog.push(...page.photos)
+        onBatch?.(page.photos)
+      }
       totalCount = page.totalCount
-      offset += page.photos.length
-      hasMore = page.hasMore && page.photos.length > 0
+      offset += page.photos.length > 0 ? page.photos.length : CATALOG_PAGE_SIZE
+      hasMore = page.hasMore && (page.photos.length > 0 || offset < page.totalCount)
 
-      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      await deferToIdle()
     }
 
     onProgress?.({

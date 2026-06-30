@@ -6,7 +6,7 @@ interface PhotoGridProps {
   maxVisible?: number
 }
 
-export function PhotoGrid({ photos, maxVisible = 120 }: PhotoGridProps) {
+export function PhotoGrid({ photos, maxVisible = 60 }: PhotoGridProps) {
   const visible = photos.slice(0, maxVisible)
   const hiddenCount = Math.max(0, photos.length - visible.length)
 

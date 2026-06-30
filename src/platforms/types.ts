@@ -7,13 +7,17 @@ export interface GalleryImportProgress {
   message: string
 }
 
+export interface ImportFullGalleryOptions {
+  onProgress?: (progress: GalleryImportProgress) => void
+  signal?: AbortSignal
+  /** Ajoute chaque page au catalogue sans attendre la fin (UI plus réactive). */
+  onBatch?: (photos: PhotoFile[]) => void
+}
+
 export interface PhotoLibraryAdapter {
   pickPhotos: (options?: { multiple?: boolean }) => Promise<PhotoFile[]>
   pickGallery?: () => Promise<PhotoFile[]>
-  importFullGallery?: (
-    onProgress?: (progress: GalleryImportProgress) => void,
-    signal?: AbortSignal,
-  ) => Promise<PhotoFile[]>
+  importFullGallery?: (options?: ImportFullGalleryOptions) => Promise<PhotoFile[]>
   pickWritableFiles?: () => Promise<PhotoFile[]>
   pickFolder?: () => Promise<PhotoFile[]>
   canPickGallery: boolean

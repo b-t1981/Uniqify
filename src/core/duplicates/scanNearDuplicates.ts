@@ -1,12 +1,17 @@
 import type { PhotoFile, PhotoGroup } from '@/core/types/photo'
 import { photoCacheKey } from '@/core/types/photo'
 import { hammingDistance, similarityPercent } from '@/core/hash/hamming'
+import {
+  hashNearFileOnDevice,
+  useMainThreadForImageHash,
+} from '@/core/hash/runOnDevice'
 import type { PHashWorkerResponse } from '@/core/duplicates/phash.worker'
 import { idle, loadThumbnailForScan, SCAN_BATCH_SIZE } from '@/core/photos/loadBytesForScan'
 import { getCachedHashPHash, setCachedHashPHash } from '@/core/storage/scanCache'
 import { withTimeout } from '@/core/utils/async'
 
-const PHASH_WORKER_TIMEOUT_MS = 45_000
+const PHASH_WORKER_TIMEOUT_MS = 22_000
+const SCAN_THUMB_SIZE = 256
 
 export const PHASH_MAX_DISTANCE = 10
 const PHASH_BUCKET_PREFIX = 8
@@ -19,6 +24,11 @@ export interface NearScanProgress {
 }
 
 let phashWorker: Worker | null = null
+
+function resetPHashWorker(): void {
+  phashWorker?.terminate()
+  phashWorker = null
+}
 
 function getPHashWorker(): Worker {
   if (!phashWorker) {
@@ -58,6 +68,19 @@ function pHashFileInWorker(photoId: string, file: File, photoName: string): Prom
   )
 }
 
+async function computeNearHash(file: File, photo: PhotoFile): Promise<string> {
+  if (useMainThreadForImageHash()) {
+    return hashNearFileOnDevice(file, photo.name)
+  }
+
+  try {
+    return await pHashFileInWorker(photo.id, file, photo.name)
+  } catch {
+    resetPHashWorker()
+    return hashNearFileOnDevice(file, photo.name)
+  }
+}
+
 async function resolvePHash(photo: PhotoFile): Promise<string | null> {
   if (photo.hashPHash) return photo.hashPHash
 
@@ -69,10 +92,10 @@ async function resolvePHash(photo: PhotoFile): Promise<string | null> {
   }
 
   try {
-    const file = await loadThumbnailForScan(photo, 512)
-    const hash = await pHashFileInWorker(photo.id, file, photo.name)
+    const file = await loadThumbnailForScan(photo, SCAN_THUMB_SIZE)
+    const hash = await computeNearHash(file, photo)
     photo.hashPHash = hash
-    await setCachedHashPHash(cacheKey, hash)
+    void setCachedHashPHash(cacheKey, hash)
     return hash
   } catch {
     return null
@@ -141,12 +164,19 @@ export async function scanNearDuplicates(
     const photo = photos[i]!
     onProgress?.({
       phase: 'hashing',
-      processed: i + 1,
+      processed: i,
       total: photos.length,
       currentName: photo.name,
     })
 
     hashes.push(await resolvePHash(photo))
+
+    onProgress?.({
+      phase: 'hashing',
+      processed: i + 1,
+      total: photos.length,
+      currentName: photo.name,
+    })
 
     if ((i + 1) % SCAN_BATCH_SIZE === 0) {
       await idle(8)
@@ -172,10 +202,13 @@ export async function scanNearDuplicates(
   const unionFind = new UnionFind(photos.length)
   const bucketKeys = [...buckets.keys()]
   let comparedPairs = 0
-  const compareTotal = bucketKeys.reduce((sum, key) => {
-    const size = buckets.get(key)?.length ?? 0
-    return sum + (size * (size - 1)) / 2
-  }, 0)
+  const compareTotal = Math.max(
+    bucketKeys.reduce((sum, key) => {
+      const size = buckets.get(key)?.length ?? 0
+      return sum + (size * (size - 1)) / 2
+    }, 0),
+    1,
+  )
 
   for (const key of bucketKeys) {
     const indices = buckets.get(key) ?? []
@@ -189,7 +222,7 @@ export async function scanNearDuplicates(
           onProgress?.({
             phase: 'comparing',
             processed: comparedPairs,
-            total: Math.max(compareTotal, 1),
+            total: compareTotal,
             currentName: 'Comparaison…',
           })
         }
@@ -213,8 +246,8 @@ export async function scanNearDuplicates(
 
   onProgress?.({
     phase: 'grouping',
-    processed: Math.max(compareTotal, 1),
-    total: Math.max(compareTotal, 1),
+    processed: compareTotal,
+    total: compareTotal,
     currentName: '',
   })
 
