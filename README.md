@@ -1,6 +1,42 @@
 # Uniqify
 
-Application de tri et de détection de doublons.
+Application web et mobile (PWA) de tri et suppression de doublons photo.
+
+## Fonctionnalités prévues
+
+- Import photos (dossier desktop / sélecteur mobile)
+- Doublons exacts (SHA-256)
+- Doublons proches (pHash)
+- Photos inutiles (flou, sombre, miniatures)
+- Mode revue swipe
+- Phase 2 : app native Capacitor (suppression galerie iPhone)
+
+## Développement
+
+```bash
+npm install
+npm run dev
+```
+
+Ouvrir http://localhost:5173
+
+## Build PWA
+
+```bash
+npm run build
+npm run preview
+```
+
+## Structure
+
+```
+src/
+  core/          # Logique métier partagée (hash, qualité, types)
+  platforms/     # Adaptateurs web / natif
+  components/    # UI React
+  pages/         # Écrans
+  hooks/         # État global
+```
 
 ## Convention de commits
 

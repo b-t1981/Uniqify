@@ -1,0 +1,32 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-surface: #0f0f0f;
+  --color-surface-raised: #1a1a1a;
+  --color-surface-overlay: #252525;
+  --color-border: #2e2e2e;
+  --color-text-muted: #a3a3a3;
+  --color-accent: #22c55e;
+  --color-danger: #ef4444;
+  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  html {
+    @apply h-full antialiased;
+  }
+
+  body {
+    @apply m-0 min-h-full bg-surface text-white font-sans;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right)
+      env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+
+  #root {
+    @apply min-h-full;
+  }
+
+  button:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
