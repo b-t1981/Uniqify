@@ -228,10 +228,7 @@ export function DuplicatesPage() {
     ? {
         processed: scanProgress.overallProcessed,
         total: scanProgress.overallTotal,
-        label:
-          scanProgress.overallProcessed >= scanProgress.overallTotal
-            ? 'Enregistrement des résultats…'
-            : `${scanProgress.phaseLabel} · ${scanProgress.currentName || '…'}`,
+        label: formatScanProgressLabel(scanProgress),
       }
     : null
 
@@ -430,6 +427,28 @@ export function DuplicatesPage() {
       </div>
     </div>
   )
+}
+
+function formatScanProgressLabel(scan: FullScanProgress): string {
+  if (scan.overallProcessed >= scan.overallTotal) {
+    return 'Enregistrement des résultats…'
+  }
+
+  const step = `${scan.processed}/${scan.total}`
+
+  if (scan.phase === 'near' && scan.subPhase === 'hashing') {
+    return `${scan.phaseLabel} · ${step} · ${scan.currentName || '…'}`
+  }
+
+  if (scan.phase === 'near' && scan.subPhase === 'comparing') {
+    return `${scan.phaseLabel} · ${step} comparaisons`
+  }
+
+  if (scan.subPhase === 'grouping' || scan.currentName === 'Regroupement…') {
+    return `${scan.phaseLabel} · Regroupement…`
+  }
+
+  return `${scan.phaseLabel} · ${step} · ${scan.currentName || '…'}`
 }
 
 function SectionTitle({ title, count }: { title: string; count: number }) {

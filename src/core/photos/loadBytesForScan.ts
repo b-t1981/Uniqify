@@ -5,6 +5,7 @@ import type { PhotoFile } from '@/core/types/photo'
 import { withTimeout } from '@/core/utils/async'
 
 const NATIVE_LOAD_TIMEOUT_MS = 45_000
+const WEB_IMAGE_TIMEOUT_MS = 30_000
 
 async function blobFromNativePath(path: string, mimeType: string): Promise<Blob> {
   const content = await withTimeout(
@@ -47,8 +48,50 @@ export async function loadFullFileForScan(photo: PhotoFile): Promise<File> {
   throw new Error(`Impossible de charger ${photo.name}`)
 }
 
+export async function downscaleFileForScan(file: File, maxSize = 512): Promise<File> {
+  const bitmap = await withTimeout(
+    createImageBitmap(file),
+    WEB_IMAGE_TIMEOUT_MS,
+    `Image trop lourde ou illisible : ${file.name}`,
+  )
+  const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height))
+  const width = Math.max(1, Math.round(bitmap.width * scale))
+  const height = Math.max(1, Math.round(bitmap.height * scale))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    bitmap.close()
+    return file
+  }
+
+  ctx.drawImage(bitmap, 0, 0, width, height)
+  bitmap.close()
+
+  const blob = await withTimeout(
+    new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (result) => (result ? resolve(result) : reject(new Error('Redimensionnement échoué'))),
+        'image/jpeg',
+        0.82,
+      )
+    }),
+    WEB_IMAGE_TIMEOUT_MS,
+    `Redimensionnement trop long : ${file.name}`,
+  )
+
+  return new File([blob], file.name, {
+    type: 'image/jpeg',
+    lastModified: file.lastModified,
+  })
+}
+
 export async function loadThumbnailForScan(photo: PhotoFile, size = 512): Promise<File> {
-  if (photo.file) return photo.file
+  if (photo.file) {
+    return downscaleFileForScan(photo.file, size)
+  }
 
   if (photo.nativeAssetId) {
     const thumb = await withTimeout(

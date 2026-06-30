@@ -4,6 +4,9 @@ import { hammingDistance, similarityPercent } from '@/core/hash/hamming'
 import type { PHashWorkerResponse } from '@/core/duplicates/phash.worker'
 import { idle, loadThumbnailForScan, SCAN_BATCH_SIZE } from '@/core/photos/loadBytesForScan'
 import { getCachedHashPHash, setCachedHashPHash } from '@/core/storage/scanCache'
+import { withTimeout } from '@/core/utils/async'
+
+const PHASH_WORKER_TIMEOUT_MS = 45_000
 
 export const PHASH_MAX_DISTANCE = 10
 const PHASH_BUCKET_PREFIX = 8
@@ -26,8 +29,8 @@ function getPHashWorker(): Worker {
   return phashWorker
 }
 
-function pHashFileInWorker(photoId: string, file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
+function pHashFileInWorker(photoId: string, file: File, photoName: string): Promise<string> {
+  const work = new Promise<string>((resolve, reject) => {
     const worker = getPHashWorker()
 
     function onMessage(event: MessageEvent<PHashWorkerResponse>) {
@@ -47,6 +50,12 @@ function pHashFileInWorker(photoId: string, file: File): Promise<string> {
     worker.addEventListener('error', onError)
     worker.postMessage({ id: photoId, file })
   })
+
+  return withTimeout(
+    work,
+    PHASH_WORKER_TIMEOUT_MS,
+    `Analyse proche trop longue : ${photoName}`,
+  )
 }
 
 async function resolvePHash(photo: PhotoFile): Promise<string | null> {
@@ -61,7 +70,7 @@ async function resolvePHash(photo: PhotoFile): Promise<string | null> {
 
   try {
     const file = await loadThumbnailForScan(photo, 512)
-    const hash = await pHashFileInWorker(photo.id, file)
+    const hash = await pHashFileInWorker(photo.id, file, photo.name)
     photo.hashPHash = hash
     await setCachedHashPHash(cacheKey, hash)
     return hash
@@ -176,12 +185,14 @@ export async function scanNearDuplicates(
         if (signal?.aborted) throw new DOMException('Analyse annulée', 'AbortError')
 
         comparedPairs++
-        onProgress?.({
-          phase: 'comparing',
-          processed: comparedPairs,
-          total: Math.max(compareTotal, 1),
-          currentName: '',
-        })
+        if (comparedPairs === 1 || comparedPairs % 25 === 0) {
+          onProgress?.({
+            phase: 'comparing',
+            processed: comparedPairs,
+            total: Math.max(compareTotal, 1),
+            currentName: 'Comparaison…',
+          })
+        }
 
         const indexA = indices[a]!
         const indexB = indices[b]!
@@ -197,7 +208,7 @@ export async function scanNearDuplicates(
       }
     }
 
-    if (comparedPairs % 200 === 0) await idle(4)
+    if (comparedPairs % 50 === 0) await idle(4)
   }
 
   onProgress?.({

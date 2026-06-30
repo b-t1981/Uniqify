@@ -13,6 +13,7 @@ export interface FullScanProgress {
   currentName: string
   overallProcessed: number
   overallTotal: number
+  subPhase?: 'hashing' | 'comparing' | 'grouping'
 }
 
 export interface FullScanResult {
@@ -55,6 +56,7 @@ export async function runFullAnalysis(
     processed: number,
     total: number,
     currentName: string,
+    subPhase?: FullScanProgress['subPhase'],
   ) => {
     const idx = phaseIndex(phase, withNear)
     onProgress({
@@ -65,6 +67,7 @@ export async function runFullAnalysis(
       currentName,
       overallProcessed: idx * scopeTotal + processed,
       overallTotal,
+      subPhase,
     })
   }
 
@@ -85,9 +88,9 @@ export async function runFullAnalysis(
           p.phase === 'hashing'
             ? p.currentName
             : p.phase === 'comparing'
-              ? 'Comparaison…'
+              ? 'Comparaison des empreintes…'
               : 'Regroupement…'
-        report('near', p.processed, p.total, label)
+        report('near', p.processed, p.total, label, p.phase)
       },
       signal,
     )
