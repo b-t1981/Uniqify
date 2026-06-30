@@ -1,51 +1,47 @@
 import { NavLink } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { AppStateProvider } from '@/hooks/useAppState'
+import { IconHome, IconImport, IconReview, IconScan } from '@/components/ui/Icons'
 
 const navItems = [
-  { to: '/', label: 'Accueil', icon: '⌂' },
-  { to: '/import', label: 'Importer', icon: '＋' },
-  { to: '/doublons', label: 'Doublons', icon: '◎' },
-  { to: '/revue', label: 'Revue', icon: '⇆' },
+  { to: '/', label: 'Accueil', Icon: IconHome },
+  { to: '/import', label: 'Photos', Icon: IconImport },
+  { to: '/doublons', label: 'Analyser', Icon: IconScan },
+  { to: '/revue', label: 'Revue', Icon: IconReview },
 ]
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <AppStateProvider>
-      <div className="mx-auto flex min-h-full max-w-5xl flex-col">
-        <header className="sticky top-0 z-10 border-b border-border bg-surface/95 px-4 py-3 backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-lg font-semibold tracking-tight">Uniqify</p>
-              <p className="text-xs text-text-muted">
-                Tri · doublons · photos inutiles
-              </p>
-            </div>
-            <span className="rounded-full bg-surface-overlay px-2.5 py-1 text-xs text-text-muted">
-              PWA
-            </span>
-          </div>
-        </header>
+      <div className="mx-auto flex min-h-full max-w-lg flex-col bg-bg">
+        <main className="flex-1 px-5 pb-28 pt-4">{children}</main>
 
-        <main className="flex-1 px-4 py-5">{children}</main>
-
-        <nav className="sticky bottom-0 border-t border-border bg-surface/95 backdrop-blur">
-          <ul className="grid grid-cols-4 gap-1 px-2 py-2">
+        <nav className="glass fixed inset-x-0 bottom-0 z-20 border-t border-separator/60">
+          <ul className="mx-auto grid max-w-lg grid-cols-4 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-1.5">
             {navItems.map((item) => (
               <li key={item.to}>
                 <NavLink
                   to={item.to}
                   className={({ isActive }) =>
                     [
-                      'flex flex-col items-center gap-0.5 rounded-xl px-2 py-2 text-xs transition-colors',
-                      isActive
-                        ? 'bg-surface-overlay text-white'
-                        : 'text-text-muted hover:text-white',
+                      'flex flex-col items-center gap-1 rounded-2xl px-2 py-2 transition',
+                      isActive ? 'text-accent' : 'text-label-tertiary',
                     ].join(' ')
                   }
                 >
-                  <span className="text-base leading-none">{item.icon}</span>
-                  <span>{item.label}</span>
+                  {({ isActive }) => (
+                    <>
+                      <span
+                        className={[
+                          'flex h-8 w-14 items-center justify-center rounded-full transition',
+                          isActive ? 'bg-accent-soft' : '',
+                        ].join(' ')}
+                      >
+                        <item.Icon className="h-[22px] w-[22px]" />
+                      </span>
+                      <span className="text-[10px] font-medium">{item.label}</span>
+                    </>
+                  )}
                 </NavLink>
               </li>
             ))}

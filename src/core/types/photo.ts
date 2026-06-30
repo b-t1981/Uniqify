@@ -1,3 +1,5 @@
+import type { PhotoQualityScores, QualityIssue } from './quality'
+
 export type PhotoSource = 'file' | 'native'
 
 export interface PhotoFile {
@@ -15,6 +17,8 @@ export interface PhotoGroup {
   photos: PhotoFile[]
   type: 'exact' | 'near' | 'low-quality'
   similarity?: number
+  qualityIssues?: QualityIssue[]
+  qualityScores?: PhotoQualityScores
 }
 
 export interface ScanProgress {

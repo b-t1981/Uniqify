@@ -1,23 +1,34 @@
 @import 'tailwindcss';
 
 @theme {
-  --color-surface: #0f0f0f;
-  --color-surface-raised: #1a1a1a;
-  --color-surface-overlay: #252525;
-  --color-border: #2e2e2e;
-  --color-text-muted: #a3a3a3;
-  --color-accent: #22c55e;
-  --color-danger: #ef4444;
-  --font-sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --color-bg: #f2f2f7;
+  --color-surface: #ffffff;
+  --color-surface-elevated: #ffffff;
+  --color-fill: #e5e5ea;
+  --color-fill-secondary: #f2f2f7;
+  --color-separator: #d1d1d6;
+  --color-label: #000000;
+  --color-label-secondary: #3c3c43;
+  --color-label-tertiary: #8e8e93;
+  --color-accent: #007aff;
+  --color-accent-soft: #e8f2ff;
+  --color-danger: #ff3b30;
+  --color-danger-soft: #ffebea;
+  --color-success: #34c759;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display',
+    system-ui, sans-serif;
+  --shadow-card: 0 1px 3px rgb(0 0 0 / 0.06), 0 1px 2px rgb(0 0 0 / 0.04);
+  --shadow-elevated: 0 8px 30px rgb(0 0 0 / 0.08);
 }
 
 @layer base {
   html {
     @apply h-full antialiased;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
-    @apply m-0 min-h-full bg-surface text-white font-sans;
+    @apply m-0 min-h-full bg-bg font-sans text-label;
     padding: env(safe-area-inset-top) env(safe-area-inset-right)
       env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
@@ -28,5 +39,20 @@
 
   button:not(:disabled) {
     @apply cursor-pointer;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 25%, white);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .glass {
+    background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+    backdrop-filter: saturate(180%) blur(20px);
   }
 }

@@ -9,7 +9,7 @@ const THUMB_SIZE = 280
 
 export function PhotoGrid({ photos }: PhotoGridProps) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+    <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
       {photos.map((photo) => (
         <PhotoThumb key={photo.id} photo={photo} />
       ))}
@@ -40,22 +40,19 @@ function PhotoThumb({ photo }: { photo: PhotoFile }) {
   }, [url, photo.thumbnailUrl])
 
   return (
-    <figure className="group relative aspect-square overflow-hidden rounded-xl border border-border bg-surface-overlay">
+    <figure className="relative aspect-square overflow-hidden rounded-2xl bg-fill shadow-card">
       {url ? (
         <img
           src={url}
           alt={photo.name}
-          className="h-full w-full object-cover transition-transform group-hover:scale-105"
+          className="h-full w-full object-cover"
           loading="lazy"
         />
       ) : (
-        <div className="flex h-full items-center justify-center text-xs text-text-muted">
+        <div className="flex h-full items-center justify-center text-xs text-label-tertiary">
           …
         </div>
       )}
-      <figcaption className="absolute inset-x-0 bottom-0 truncate bg-black/60 px-2 py-1 text-[10px]">
-        {photo.name}
-      </figcaption>
     </figure>
   )
 }
@@ -82,7 +79,7 @@ async function createThumbnail(file: File, maxSize: number): Promise<string> {
     canvas.toBlob(
       (blob) => resolve(URL.createObjectURL(blob ?? file)),
       'image/jpeg',
-      0.75,
+      0.82,
     )
   })
 }
